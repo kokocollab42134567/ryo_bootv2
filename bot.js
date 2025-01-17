@@ -1,27 +1,6 @@
 // Import necessary modules
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
-const axios = require('axios');
-
-// Lexica API setup
-const LEXICA_API_URL = 'https://lexica.art/api/v1/search';
-
-// Function to fetch image from Lexica API
-const fetchImageFromLexica = async (inputText) => {
-    try {
-        const response = await axios.get(LEXICA_API_URL, {
-            params: { q: inputText },
-            timeout: 20000, // Set a timeout of 20 seconds
-        });
-
-        // Retrieve the first image URL from the search results
-        const imageUrl = response.data.images?.[0]?.src || null;
-        return imageUrl;
-    } catch (error) {
-        console.error('Error fetching image from Lexica:', error);
-        return null;
-    }
-};
 
 // Function to start the WhatsApp bot
 const startSock = async () => {
@@ -61,34 +40,42 @@ const startSock = async () => {
         console.log('Received message:', JSON.stringify(msg, null, 2));
         const message = msg.messages[0];
 
-        if (!message.key.fromMe && message.message && !message.key.remoteJid.endsWith('@g.us')) {
-            const sender = message.key.remoteJid; // Chat ID
-
-            // Safely extract the text message
+        if (message.message && message.key.remoteJid.endsWith('@g.us')) {
+            const groupId = message.key.remoteJid; // Group ID
+            const sender = message.key.participant; // Sender ID
             const text =
                 message.message.conversation ||
                 message.message.extendedTextMessage?.text ||
                 message.message.ephemeralMessage?.message?.extendedTextMessage?.text ||
                 '';
 
-            console.log(`Message from ${sender}: ${text}`);
+            console.log(`Message from ${sender} in group ${groupId}: ${text}`);
 
-            if (text.trim()) {
-                // Fetch an image using the Lexica API
-                const imageUrl = await fetchImageFromLexica(text);
-
-                if (imageUrl) {
-                    // Send the fetched image
-                    await sock.sendMessage(sender, { image: { url: imageUrl }, caption: "Here is an image from Lexica based on your input!" });
-                    console.log(`Replied to ${sender} with an image: ${imageUrl}`);
-                } else {
-                    // Send an error message
-                    await sock.sendMessage(sender, { text: "Sorry, I couldn't find an image for your request." });
-                    console.log(`Failed to fetch an image for ${sender}`);
+            if (text.trim() === '.منشن') {
+                try {
+                    // Fetch group participants
+                    const groupMetadata = await sock.groupMetadata(groupId);
+                    const participants = groupMetadata.participants;
+            
+                    // Prepare the message content
+                    const mentions = participants.map(p => p.id || p.jid);
+                    const mentionMessage = `منشن جماعي:\n${mentions
+                        .map(id => `@${id.split('@')[0]}`)
+                        .join('\n')}`;
+            
+                    // Send a single message with all mentions
+                    await sock.sendMessage(groupId, {
+                        text: mentionMessage,
+                        mentions
+                    });
+            
+                    console.log(`Sent a full mention message in group ${groupId}`);
+                } catch (error) {
+                    console.error('Failed to send mention message:', JSON.stringify(error, null, 2));
                 }
-            } else {
-                console.log('Received a message with no text content.');
             }
+            
+            
         }
     });
 
