@@ -1,5 +1,5 @@
 {
-  "name": "boots",
+  "name": "keep-alive-project",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -10,9 +10,6 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@hapi/boom": "^10.0.1",
-    "@whiskeysockets/baileys": "^6.7.9",
-    "axios": "^1.7.9",
-    "query-string": "^9.1.1"
+    "axios": "^1.7.9"
   }
 }
