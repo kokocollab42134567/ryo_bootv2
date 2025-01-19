@@ -1,7 +1,9 @@
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
-const axios = require('axios'); // For sending requests to OpenRouter AI
+const axios = require('axios');
+const http = require('http');
 
+// Query AI to determine if the message is a mention request
 const queryAI = async (text) => {
     try {
         const response = await axios.post(
@@ -24,15 +26,15 @@ const queryAI = async (text) => {
             response.data.choices[0]?.text
         ) {
             const aiResponse = response.data.choices[0].text.trim();
-            console.log(`AI Pure Response: ${aiResponse}`); // Log the pure AI response
-            return aiResponse.replace(/[^\w\s]/gi, '').toLowerCase() === 'yes'; // Corrected comparison
+            console.log(`AI Pure Response: ${aiResponse}`); // Log the AI response
+            return aiResponse.replace(/[^\w\s]/gi, '').toLowerCase() === 'yes';
         } else {
             console.error('Unexpected AI response structure:', response.data);
-            return false; // Default to "no"
+            return false;
         }
     } catch (error) {
         console.error('Error querying AI:', error.message);
-        return false; // Default to "no" in case of an error
+        return false;
     }
 };
 
@@ -42,13 +44,11 @@ const startSock = async () => {
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true, // Print QR code in terminal for scanning
+        printQRInTerminal: true,
     });
 
-    // Save authentication state
     sock.ev.on('creds.update', saveCreds);
 
-    // Handle connection updates
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
@@ -66,13 +66,12 @@ const startSock = async () => {
         }
     });
 
-    // Listen for incoming messages
     sock.ev.on('messages.upsert', async (msg) => {
         const message = msg.messages[0];
-        if (!message.message || !message.key.remoteJid.endsWith('@g.us')) return; // Ignore non-group messages
+        if (!message.message || !message.key.remoteJid.endsWith('@g.us')) return;
 
-        const groupId = message.key.remoteJid; // Group ID
-        const sender = message.key.participant; // Sender ID
+        const groupId = message.key.remoteJid;
+        const sender = message.key.participant;
         const text =
             message.message.conversation ||
             message.message.extendedTextMessage?.text ||
@@ -81,24 +80,19 @@ const startSock = async () => {
 
         console.log(`Message from ${sender} in group ${groupId}: ${text}`);
 
-       
         if (text.trim().startsWith('.')) {
-            // Send the message to AI for processing
             const isMentionRequest = await queryAI(text);
 
             if (isMentionRequest) {
                 try {
-                    // Fetch group participants
                     const groupMetadata = await sock.groupMetadata(groupId);
                     const participants = groupMetadata.participants;
 
-                    // Prepare the message content
                     const mentions = participants.map((p) => p.id || p.jid);
                     const mentionMessage = `منشن جماعي:\n${mentions
                         .map((id) => `@${id.split('@')[0]}`)
                         .join('\n')}`;
 
-                    // Send a single message with all mentions
                     await sock.sendMessage(groupId, {
                         text: mentionMessage,
                         mentions,
@@ -106,7 +100,7 @@ const startSock = async () => {
 
                     console.log(`AI confirmed. Sent a full mention message in group ${groupId}`);
                 } catch (error) {
-                    console.error('Failed to send mention message:', JSON.stringify(error, null, 2));
+                    console.error('Failed to send mention message:', error);
                 }
             } else {
                 console.log('AI determined the message is not a mention request.');
@@ -114,18 +108,33 @@ const startSock = async () => {
         }
     });
 
-    // Specify port for Render or default to 3000 for local testing
-    const port = process.env.PORT || 3000;
-
-    // This will ensure that your bot listens on the correct port when deployed on Render
-    sock.listen(port, () => {
-        console.log(`WhatsApp bot is listening on port ${port}`);
-    });
-
     return sock;
 };
 
-// Start the bot
+// Function to start a basic HTTP server
+const startServer = () => {
+    const port = process.env.SERVER_PORT || 3001;
+
+    const server = http.createServer((req, res) => {
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const hiParam = url.searchParams.get('hi');
+
+        if (hiParam === 'true') {
+            console.log('hi');
+        }
+
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Server is running');
+    });
+
+    server.listen(port, () => {
+        console.log(`HTTP server is running on port ${port}`);
+    });
+};
+
+// Start the bot and the server
 startSock().catch((err) => {
     console.error('Error starting the bot:', err);
 });
+
+startServer();
