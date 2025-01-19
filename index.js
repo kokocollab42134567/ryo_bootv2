@@ -8,17 +8,16 @@ const queryAI = async (text) => {
             'https://openrouter.ai/api/v1/chat/completions',
             {
                 model: 'openai/gpt-4o-mini',
-                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without write it  and then respond with only \"yes\" or \"no\".your reply most be only as i say withou change or add any thing.`,
+                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without write it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without change or add anything.`,
                 max_tokens: 5,
             },
             {
                 headers: {
-                    Authorization: 'Bearer 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', // Replace with your OpenRouter API key
+                    Authorization: 'Bearer YOUR_API_KEY', // Replace with your OpenRouter API key
                 },
             }
         );
 
-        // Ensure the response structure is as expected
         if (
             response.data &&
             Array.isArray(response.data.choices) &&
@@ -26,7 +25,7 @@ const queryAI = async (text) => {
         ) {
             const aiResponse = response.data.choices[0].text.trim();
             console.log(`AI Pure Response: ${aiResponse}`); // Log the pure AI response
-            return aiResponse.replace(/[^\w\s]/gi, '').toLowerCase() === 'yes';// Corrected comparison
+            return aiResponse.replace(/[^\w\s]/gi, '').toLowerCase() === 'yes'; // Corrected comparison
         } else {
             console.error('Unexpected AI response structure:', response.data);
             return false; // Default to "no"
@@ -39,10 +38,8 @@ const queryAI = async (text) => {
 
 // Function to start the WhatsApp bot
 const startSock = async () => {
-    // Set up authentication
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
 
-    // Initialize the socket
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true, // Print QR code in terminal for scanning
@@ -58,7 +55,6 @@ const startSock = async () => {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             console.log(`Connection closed. Reason: ${reason}`);
 
-            // Reconnect unless logged out
             if (reason !== DisconnectReason.loggedOut) {
                 console.log('Reconnecting...');
                 startSock();
@@ -85,6 +81,7 @@ const startSock = async () => {
 
         console.log(`Message from ${sender} in group ${groupId}: ${text}`);
 
+       
         if (text.trim().startsWith('.')) {
             // Send the message to AI for processing
             const isMentionRequest = await queryAI(text);
@@ -115,6 +112,14 @@ const startSock = async () => {
                 console.log('AI determined the message is not a mention request.');
             }
         }
+    });
+
+    // Specify port for Render or default to 3000 for local testing
+    const port = process.env.PORT || 3000;
+
+    // This will ensure that your bot listens on the correct port when deployed on Render
+    sock.listen(port, () => {
+        console.log(`WhatsApp bot is listening on port ${port}`);
     });
 
     return sock;
