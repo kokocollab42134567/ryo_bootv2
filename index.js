@@ -2,6 +2,7 @@ const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = requi
 const { Boom } = require('@hapi/boom');
 const axios = require('axios');
 const http = require('http');
+const https = require('https'); // Required for making HTTPS requests
 
 // Query AI to determine if the message is a mention request
 const queryAI = async (text) => {
@@ -15,7 +16,7 @@ const queryAI = async (text) => {
             },
             {
                 headers: {
-                    Authorization: 'Bearer YOUR_API_KEY', // Replace with your OpenRouter API key
+                    Authorization: 'Bearer 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', // Replace with your OpenRouter API key
                 },
             }
         );
@@ -132,9 +133,22 @@ const startServer = () => {
     });
 };
 
-// Start the bot and the server
+// Function to ping the external URL every second
+const startPinging = () => {
+    setInterval(async () => {
+        try {
+            await axios.get('https://mp4streamtap.onrender.com/?hi=true');
+            console.log('Pinged external URL: hi');
+        } catch (error) {
+            console.error('Error pinging external URL:', error.message);
+        }
+    }, 1000); // Ping every second
+};
+
+// Start the bot, server, and pinging process
 startSock().catch((err) => {
     console.error('Error starting the bot:', err);
 });
 
 startServer();
+startPinging();
