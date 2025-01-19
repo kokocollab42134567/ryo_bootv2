@@ -16,7 +16,7 @@ const queryAI = async (text) => {
             },
             {
                 headers: {
-                    Authorization: 'Bearer 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', // Replace with your OpenRouter API key
+                    Authorization: 'Bearer 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', // Replace with your OpenRouter API key
                 },
             }
         );
