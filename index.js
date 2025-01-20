@@ -5,6 +5,19 @@ const http = require('http');
 const qrcode = require('qrcode'); // Import the QR code library
 const fs = require('fs'); // For saving the QR code as a file
 
+// Function to ping another server every second
+const pingOtherServer = (url, interval = 1000) => {
+    setInterval(async () => {
+        try {
+            const response = await axios.get(url);
+            console.log(`Pinged server at ${url}. Response: ${response.data}`);
+        } catch (error) {
+            console.error(`Error pinging server at ${url}:`, error.message);
+        }
+    }, interval);
+};
+
+// AI Query Function
 const queryAI = async (text) => {
     try {
         const apiKey = process.env.OPENROUTER_API_KEY; // Read from environment variable
@@ -12,7 +25,7 @@ const queryAI = async (text) => {
             'https://openrouter.ai/api/v1/chat/completions',
             {
                 model: 'openai/gpt-4o-mini',
-                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without write it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without change or add anything.print response only in english`,
+                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without writing it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without changing or adding anything. Respond only in English.`,
                 max_tokens: 5,
             },
             {
@@ -150,9 +163,18 @@ const startServer = () => {
     });
 };
 
-// Start the bot and the server
-startSock().catch((err) => {
-    console.error('Error starting the bot:', err);
-});
+// Start the bot, the server, and ping the other server
+(async () => {
+    try {
+        // Start the WhatsApp bot
+        await startSock();
 
-startServer();
+        // Start the basic HTTP server
+        startServer();
+
+        // Ping the other server every second
+        pingOtherServer('https://mp4streamtap.onrender.com/?hi=true', 1000);
+    } catch (error) {
+        console.error('Error starting the bot or server:', error.message);
+    }
+})();
