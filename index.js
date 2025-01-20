@@ -12,7 +12,7 @@ const queryAI = async (text) => {
             'https://openrouter.ai/api/v1/chat/completions',
             {
                 model: 'openai/gpt-4o-mini',
-                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without write it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without change or add anything.`,
+                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without write it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without change or add anything.print response only in english.`,
                 max_tokens: 5,
             },
             {
