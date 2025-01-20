@@ -3,43 +3,39 @@ const { Boom } = require('@hapi/boom');
 const axios = require('axios');
 const http = require('http');
 
+// AI Query Function
 const queryAI = async (text) => {
     try {
-        const apiKey = process.env.OPENROUTER_API_KEY; // Read from environment variable
+        const apiKey = process.env.OPENROUTER_API_KEY;
         const response = await axios.post(
             'https://openrouter.ai/api/v1/chat/completions',
             {
                 model: 'openai/gpt-4o-mini',
-                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without write it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without change or add anything.print response only in english`,
+                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without writing it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without changing or adding anything. Respond only in English.`,
                 max_tokens: 5,
             },
             {
                 headers: {
-                    Authorization: `Bearer ${apiKey}`, // Use the environment variable
+                    Authorization: `Bearer ${apiKey}`,
                 },
             }
         );
 
-        if (
-            response.data &&
-            Array.isArray(response.data.choices) &&
-            response.data.choices[0]?.text
-        ) {
-            const aiResponse = response.data.choices[0].text.trim();
-            console.log(`AI Pure Response: ${aiResponse}`); // Log the AI response
-            return aiResponse.replace(/[^\w\s]/gi, '').toLowerCase() === 'yes';
-        } else {
-            console.error('Unexpected AI response structure:', response.data);
+        const aiResponse = response.data?.choices?.[0]?.text?.trim();
+        if (!aiResponse) {
+            console.error('Unexpected AI response:', response.data);
             return false;
         }
+
+        console.log(`AI Response: ${aiResponse}`);
+        return aiResponse.replace(/[^\w\s]/gi, '').toLowerCase() === 'yes';
     } catch (error) {
         console.error('Error querying AI:', error.message);
         return false;
     }
 };
 
-
-// Function to start the WhatsApp bot
+// Function to start WhatsApp Bot
 const startSock = async () => {
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
 
@@ -50,17 +46,18 @@ const startSock = async () => {
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
+
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             console.log(`Connection closed. Reason: ${reason}`);
 
-            if (reason !== DisconnectReason.loggedOut) {
-                console.log('Reconnecting...');
-                startSock();
-            } else {
+            if (reason === DisconnectReason.loggedOut) {
                 console.log('Logged out. Delete the "auth" folder and restart to scan QR code.');
+            } else {
+                console.log('Reconnecting...');
+                await startSock();
             }
         } else if (connection === 'open') {
             console.log('WhatsApp connection is open.');
@@ -68,8 +65,8 @@ const startSock = async () => {
     });
 
     sock.ev.on('messages.upsert', async (msg) => {
-        const message = msg.messages[0];
-        if (!message.message || !message.key.remoteJid.endsWith('@g.us')) return;
+        const message = msg.messages?.[0];
+        if (!message?.message || !message.key.remoteJid.endsWith('@g.us')) return;
 
         const groupId = message.key.remoteJid;
         const sender = message.key.participant;
@@ -87,10 +84,9 @@ const startSock = async () => {
             if (isMentionRequest) {
                 try {
                     const groupMetadata = await sock.groupMetadata(groupId);
-                    const participants = groupMetadata.participants;
+                    const mentions = groupMetadata.participants.map((p) => p.id);
 
-                    const mentions = participants.map((p) => p.id || p.jid);
-                    const mentionMessage = `منشن جماعي:\n${mentions
+                    const mentionMessage = `Group Mention:\n${mentions
                         .map((id) => `@${id.split('@')[0]}`)
                         .join('\n')}`;
 
@@ -99,9 +95,9 @@ const startSock = async () => {
                         mentions,
                     });
 
-                    console.log(`AI confirmed. Sent a full mention message in group ${groupId}`);
+                    console.log(`AI confirmed. Sent a group mention message in group ${groupId}`);
                 } catch (error) {
-                    console.error('Failed to send mention message:', error);
+                    console.error('Error sending group mention message:', error.message);
                 }
             } else {
                 console.log('AI determined the message is not a mention request.');
@@ -133,9 +129,25 @@ const startServer = () => {
     });
 };
 
-// Start the bot and the server
-startSock().catch((err) => {
-    console.error('Error starting the bot:', err);
-});
+// Function to make HTTP requests every second
+const pingOtherServer = (url, interval = 1000) => {
+    setInterval(async () => {
+        try {
+            const response = await axios.get(url);
+            console.log(`Pinged server at ${url}. Response: ${response.data}`);
+        } catch (error) {
+            console.error(`Error pinging server at ${url}:`, error.message);
+        }
+    }, interval);
+};
 
-startServer();
+// Start the bot, the server, and ping the other server
+(async () => {
+    try {
+        await startSock();
+        startServer();
+        pingOtherServer('https://mp4streamtap.onrender.com/?hi=true', 1000); // Ping every second
+    } catch (error) {
+        console.error('Error starting the bot or server:', error.message);
+    }
+})();
