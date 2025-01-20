@@ -1,13 +1,15 @@
+require('dotenv').config(); // Load environment variables from .env file (for local testing)
+
 const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const axios = require('axios');
 const http = require('http');
-const lockFile = require('lockfile'); // To ensure single instance per session
+const https = require('https'); // Required for making HTTPS requests
 
 // Query AI to determine if the message is a mention request
 const queryAI = async (text) => {
     try {
-        const apiKey = process.env.OPENROUTER_API_KEY; // Read from environment variable
+        const apiKey = process.env.OPENROUTER_API_KEY; // Use the environment variable
         const response = await axios.post(
             'https://openrouter.ai/api/v1/chat/completions',
             {
@@ -17,7 +19,7 @@ const queryAI = async (text) => {
             },
             {
                 headers: {
-                    Authorization: `Bearer ${apiKey}`, // Use the environment variable
+                    Authorization: `Bearer ${apiKey}`, // Use the environment variable here
                 },
             }
         );
@@ -41,8 +43,8 @@ const queryAI = async (text) => {
 };
 
 // Function to start the WhatsApp bot
-const startSock = async (sessionName) => {
-    const { state, saveCreds } = await useMultiFileAuthState(`./auth-${sessionName}`);
+const startSock = async () => {
+    const { state, saveCreds } = await useMultiFileAuthState('./auth');
 
     const sock = makeWASocket({
         auth: state,
@@ -55,32 +57,25 @@ const startSock = async (sessionName) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            console.log(`Connection closed for session "${sessionName}". Reason: ${reason}`);
+            console.log(`Connection closed. Reason: ${reason}`);
 
             if (reason !== DisconnectReason.loggedOut) {
-                console.log(`Reconnecting session "${sessionName}"...`);
-                startSock(sessionName);
+                console.log('Reconnecting...');
+                startSock();
             } else {
-                console.log(`Session "${sessionName}" logged out. Delete the auth folder and restart to scan QR code.`);
+                console.log('Logged out. Delete the "auth" folder and restart to scan QR code.');
             }
         } else if (connection === 'open') {
-            console.log(`WhatsApp connection is open for session "${sessionName}".`);
+            console.log('WhatsApp connection is open.');
         }
     });
 
     sock.ev.on('messages.upsert', async (msg) => {
         const message = msg.messages[0];
-
-        // Skip if the message has no content or is not from a group
         if (!message.message || !message.key.remoteJid.endsWith('@g.us')) return;
 
         const groupId = message.key.remoteJid;
         const sender = message.key.participant;
-        const botId = sock.user.id; // Bot's ID
-
-        // Skip messages not sent by the bot itself
-        if (sender !== botId) return;
-
         const text =
             message.message.conversation ||
             message.message.extendedTextMessage?.text ||
@@ -153,27 +148,10 @@ const startPinging = () => {
     }, 1000); // Ping every second
 };
 
-// Locking to ensure no duplicate instances
-const lockPath = './bot.lock';
-if (lockFile.checkSync(lockPath)) {
-    console.log('Another bot instance is running. Exiting...');
-    process.exit(1);
-}
-
-lockFile.lockSync(lockPath);
-
-process.on('exit', () => {
-    lockFile.unlockSync(lockPath);
+// Start the bot, server, and pinging process
+startSock().catch((err) => {
+    console.error('Error starting the bot:', err);
 });
 
-// Start the bot, server, and pinging process
-(async () => {
-    const sessionName = process.env.SESSION_NAME || 'default';
-    try {
-        await startSock(sessionName);
-        startServer();
-        startPinging();
-    } catch (err) {
-        console.error(`Error starting the bot for session "${sessionName}":`, err);
-    }
-})();
+startServer();
+startPinging();
