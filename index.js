@@ -7,6 +7,7 @@ const https = require('https'); // Required for making HTTPS requests
 // Query AI to determine if the message is a mention request
 const queryAI = async (text) => {
     try {
+        const apiKey = process.env.OPENROUTER_API_KEY; // Read from environment variable
         const response = await axios.post(
             'https://openrouter.ai/api/v1/chat/completions',
             {
@@ -16,7 +17,7 @@ const queryAI = async (text) => {
             },
             {
                 headers: {
-                    Authorization: 'Bearer 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', // Replace with your OpenRouter API key
+                    Authorization: `Bearer ${apiKey}`, // Use the environment variable
                 },
             }
         );
@@ -38,6 +39,7 @@ const queryAI = async (text) => {
         return false;
     }
 };
+
 
 // Function to start the WhatsApp bot
 const startSock = async () => {
