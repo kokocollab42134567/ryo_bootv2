@@ -2,7 +2,7 @@ const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = requi
 const { Boom } = require('@hapi/boom');
 const axios = require('axios');
 const http = require('http');
-const https = require('https'); // Required for making HTTPS requests
+const lockFile = require('lockfile'); // To ensure single instance per session
 
 // Query AI to determine if the message is a mention request
 const queryAI = async (text) => {
@@ -40,10 +40,9 @@ const queryAI = async (text) => {
     }
 };
 
-
 // Function to start the WhatsApp bot
-const startSock = async () => {
-    const { state, saveCreds } = await useMultiFileAuthState('./auth');
+const startSock = async (sessionName) => {
+    const { state, saveCreds } = await useMultiFileAuthState(`./auth-${sessionName}`);
 
     const sock = makeWASocket({
         auth: state,
@@ -56,25 +55,32 @@ const startSock = async () => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
-            console.log(`Connection closed. Reason: ${reason}`);
+            console.log(`Connection closed for session "${sessionName}". Reason: ${reason}`);
 
             if (reason !== DisconnectReason.loggedOut) {
-                console.log('Reconnecting...');
-                startSock();
+                console.log(`Reconnecting session "${sessionName}"...`);
+                startSock(sessionName);
             } else {
-                console.log('Logged out. Delete the "auth" folder and restart to scan QR code.');
+                console.log(`Session "${sessionName}" logged out. Delete the auth folder and restart to scan QR code.`);
             }
         } else if (connection === 'open') {
-            console.log('WhatsApp connection is open.');
+            console.log(`WhatsApp connection is open for session "${sessionName}".`);
         }
     });
 
     sock.ev.on('messages.upsert', async (msg) => {
         const message = msg.messages[0];
+
+        // Skip if the message has no content or is not from a group
         if (!message.message || !message.key.remoteJid.endsWith('@g.us')) return;
 
         const groupId = message.key.remoteJid;
         const sender = message.key.participant;
+        const botId = sock.user.id; // Bot's ID
+
+        // Skip messages not sent by the bot itself
+        if (sender !== botId) return;
+
         const text =
             message.message.conversation ||
             message.message.extendedTextMessage?.text ||
@@ -147,10 +153,27 @@ const startPinging = () => {
     }, 1000); // Ping every second
 };
 
-// Start the bot, server, and pinging process
-startSock().catch((err) => {
-    console.error('Error starting the bot:', err);
+// Locking to ensure no duplicate instances
+const lockPath = './bot.lock';
+if (lockFile.checkSync(lockPath)) {
+    console.log('Another bot instance is running. Exiting...');
+    process.exit(1);
+}
+
+lockFile.lockSync(lockPath);
+
+process.on('exit', () => {
+    lockFile.unlockSync(lockPath);
 });
 
-startServer();
-startPinging();
+// Start the bot, server, and pinging process
+(async () => {
+    const sessionName = process.env.SESSION_NAME || 'default';
+    try {
+        await startSock(sessionName);
+        startServer();
+        startPinging();
+    } catch (err) {
+        console.error(`Error starting the bot for session "${sessionName}":`, err);
+    }
+})();
