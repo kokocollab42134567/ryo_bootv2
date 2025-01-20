@@ -2,71 +2,91 @@ const { default: makeWASocket, DisconnectReason, useMultiFileAuthState } = requi
 const { Boom } = require('@hapi/boom');
 const axios = require('axios');
 const http = require('http');
+const qrcode = require('qrcode'); // Import the QR code library
+const fs = require('fs'); // For saving the QR code as a file
 
-// AI Query Function
 const queryAI = async (text) => {
     try {
-        const apiKey = process.env.OPENROUTER_API_KEY;
+        const apiKey = process.env.OPENROUTER_API_KEY; // Read from environment variable
         const response = await axios.post(
             'https://openrouter.ai/api/v1/chat/completions',
             {
                 model: 'openai/gpt-4o-mini',
-                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without writing it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without changing or adding anything. Respond only in English.`,
+                prompt: `Does this message \"${text}\" contain a request to mention or mention all users in a group? Please first correct any spelling errors or missing character without write it and then respond with only \"yes\" or \"no\". Your reply must be only as I say without change or add anything.print response only in english`,
                 max_tokens: 5,
             },
             {
                 headers: {
-                    Authorization: `Bearer ${apiKey}`,
+                    Authorization: `Bearer ${apiKey}`, // Use the environment variable
                 },
             }
         );
 
-        const aiResponse = response.data?.choices?.[0]?.text?.trim();
-        if (!aiResponse) {
-            console.error('Unexpected AI response:', response.data);
+        if (
+            response.data &&
+            Array.isArray(response.data.choices) &&
+            response.data.choices[0]?.text
+        ) {
+            const aiResponse = response.data.choices[0].text.trim();
+            console.log(`AI Pure Response: ${aiResponse}`); // Log the AI response
+            return aiResponse.replace(/[^\w\s]/gi, '').toLowerCase() === 'yes';
+        } else {
+            console.error('Unexpected AI response structure:', response.data);
             return false;
         }
-
-        console.log(`AI Response: ${aiResponse}`);
-        return aiResponse.replace(/[^\w\s]/gi, '').toLowerCase() === 'yes';
     } catch (error) {
         console.error('Error querying AI:', error.message);
         return false;
     }
 };
 
-// Function to start WhatsApp Bot
+// Function to start the WhatsApp bot
 const startSock = async () => {
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
 
     const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
+        printQRInTerminal: false, // Disable default terminal QR printing
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update;
+        const { connection, lastDisconnect, qr } = update;
 
         if (connection === 'close') {
             const reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
             console.log(`Connection closed. Reason: ${reason}`);
 
-            if (reason === DisconnectReason.loggedOut) {
-                console.log('Logged out. Delete the "auth" folder and restart to scan QR code.');
-            } else {
+            if (reason !== DisconnectReason.loggedOut) {
                 console.log('Reconnecting...');
-                await startSock();
+                startSock();
+            } else {
+                console.log('Logged out. Delete the "auth" folder and restart to scan QR code.');
             }
         } else if (connection === 'open') {
             console.log('WhatsApp connection is open.');
+        } else if (qr) {
+            // Generate and save the QR code as a PNG file
+            const qrFilePath = './qr_code.png';
+            try {
+                await qrcode.toFile(qrFilePath, qr, { width: 300 });
+                console.log(`QR code saved to ${qrFilePath}`);
+            } catch (err) {
+                console.error('Failed to save QR code as PNG:', err);
+            }
+
+            // Print the QR code in the terminal
+            qrcode.toString(qr, { type: 'terminal' }, (err, url) => {
+                if (err) console.error('Failed to generate QR code for terminal:', err);
+                else console.log(url);
+            });
         }
     });
 
     sock.ev.on('messages.upsert', async (msg) => {
-        const message = msg.messages?.[0];
-        if (!message?.message || !message.key.remoteJid.endsWith('@g.us')) return;
+        const message = msg.messages[0];
+        if (!message.message || !message.key.remoteJid.endsWith('@g.us')) return;
 
         const groupId = message.key.remoteJid;
         const sender = message.key.participant;
@@ -84,9 +104,10 @@ const startSock = async () => {
             if (isMentionRequest) {
                 try {
                     const groupMetadata = await sock.groupMetadata(groupId);
-                    const mentions = groupMetadata.participants.map((p) => p.id);
+                    const participants = groupMetadata.participants;
 
-                    const mentionMessage = `Group Mention:\n${mentions
+                    const mentions = participants.map((p) => p.id || p.jid);
+                    const mentionMessage = `منشن جماعي:\n${mentions
                         .map((id) => `@${id.split('@')[0]}`)
                         .join('\n')}`;
 
@@ -95,9 +116,9 @@ const startSock = async () => {
                         mentions,
                     });
 
-                    console.log(`AI confirmed. Sent a group mention message in group ${groupId}`);
+                    console.log(`AI confirmed. Sent a full mention message in group ${groupId}`);
                 } catch (error) {
-                    console.error('Error sending group mention message:', error.message);
+                    console.error('Failed to send mention message:', error);
                 }
             } else {
                 console.log('AI determined the message is not a mention request.');
@@ -129,25 +150,9 @@ const startServer = () => {
     });
 };
 
-// Function to make HTTP requests every second
-const pingOtherServer = (url, interval = 1000) => {
-    setInterval(async () => {
-        try {
-            const response = await axios.get(url);
-            console.log(`Pinged server at ${url}. Response: ${response.data}`);
-        } catch (error) {
-            console.error(`Error pinging server at ${url}:`, error.message);
-        }
-    }, interval);
-};
+// Start the bot and the server
+startSock().catch((err) => {
+    console.error('Error starting the bot:', err);
+});
 
-// Start the bot, the server, and ping the other server
-(async () => {
-    try {
-        await startSock();
-        startServer();
-        pingOtherServer('https://mp4streamtap.onrender.com/?hi=true', 1000); // Ping every second
-    } catch (error) {
-        console.error('Error starting the bot or server:', error.message);
-    }
-})();
+startServer();
