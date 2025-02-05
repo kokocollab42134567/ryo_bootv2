@@ -5,7 +5,7 @@ const http = require('http');
 const qrcode = require('qrcode'); // Import the QR code library
 const fs = require('fs'); // For saving the QR code as a file
 const { handleGroupUpdate } = require('./security');
-
+const activeUpdates = new Set(); // To track ongoing updates
 // Function to ping another server every second
 const pingOtherServer = (url, interval = 1000) => {
     setInterval(async () => {
@@ -140,7 +140,13 @@ const startSock = async () => {
         }
     });
     sock.ev.on('group-participants.update', async (update) => {
-        await handleGroupUpdate(sock, update);
+        if (activeUpdates.has(update.id)) return; // Prevent duplicate processing
+        activeUpdates.add(update.id);
+
+        setTimeout(async () => {
+            await handleGroupUpdate(sock, update);
+            activeUpdates.delete(update.id); // Remove from tracking after processing
+        }, 2000); // Adding delay to prevent rate limit issues
     });    
 
     return sock;
