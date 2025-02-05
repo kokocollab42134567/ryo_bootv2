@@ -4,6 +4,7 @@ const axios = require('axios');
 const http = require('http');
 const qrcode = require('qrcode'); // Import the QR code library
 const fs = require('fs'); // For saving the QR code as a file
+const { handleGroupUpdate } = require('./security');
 
 // Function to ping another server every second
 const pingOtherServer = (url, interval = 1000) => {
@@ -138,6 +139,9 @@ const startSock = async () => {
             }
         }
     });
+    sock.ev.on('group-participants.update', async (update) => {
+        await handleGroupUpdate(sock, update);
+    });    
 
     return sock;
 };
