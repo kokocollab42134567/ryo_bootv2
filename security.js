@@ -11,17 +11,22 @@ const handleGroupUpdate = async (sock, update) => {
             
             if (action === 'promote') {
                 if (!authorizedAdmins.includes(executor)) {
-                    await sock.groupParticipantsUpdate(id, [executor, participant], 'demote');
-                    console.log(`Unauthorized admin change detected. Reverted action for ${participant}`);
+                    await sock.groupParticipantsUpdate(id, [executor], 'demote');
+                    await sock.groupParticipantsUpdate(id, [participant], 'demote');
+                    console.log(`Unauthorized admin promotion detected. Demoted both executor ${executor} and promoted participant ${participant}`);
                 }
             } else if (action === 'demote') {
-                await sock.groupParticipantsUpdate(id, [participant], 'promote');
-                await sock.groupParticipantsUpdate(id, [executor], 'demote');
-                console.log(`Unauthorized admin demotion detected. Reverted action and demoted ${executor}`);
+                if (!authorizedAdmins.includes(executor)) {
+                    await sock.groupParticipantsUpdate(id, [participant], 'promote');
+                    await sock.groupParticipantsUpdate(id, [executor], 'demote');
+                    console.log(`Unauthorized admin demotion detected. Restored admin to ${participant} and demoted executor ${executor}`);
+                }
             } else if (action === 'remove') {
-                await sock.groupParticipantsUpdate(id, [participant], 'add');
-                await sock.groupParticipantsUpdate(id, [executor], 'demote');
-                console.log(`Unauthorized removal detected. Readded ${participant} and demoted ${executor}`);
+                if (!authorizedAdmins.includes(executor)) {
+                    await sock.groupParticipantsUpdate(id, [participant], 'add');
+                    await sock.groupParticipantsUpdate(id, [executor], 'demote');
+                    console.log(`Unauthorized removal detected. Re-added ${participant} and demoted ${executor}`);
+                }
             }
         }
     } catch (error) {
